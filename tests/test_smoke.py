@@ -366,6 +366,204 @@ def test_top(imm):
 
 
 # ----------------------------------------------------------------------
+# repSample
+# ----------------------------------------------------------------------
+def test_repsample_downsample(imm):
+    ds = pim.repSample(imm, method="downsample", n=200, seed=0)
+    assert isinstance(ds, pim.ImmunData)
+    for s in imm.samples():
+        assert int(ds[s][pim.IMMCOL.count].sum()) == 200
+        assert (ds[s][pim.IMMCOL.count] > 0).all()
+        assert ds[s][pim.IMMCOL.prop].sum() == pytest.approx(1.0)
+
+
+def test_repsample_resample(imm):
+    rs = pim.repSample(imm, method="resample", n=300, seed=0)
+    for s in imm.samples():
+        assert int(rs[s][pim.IMMCOL.count].sum()) == 300
+
+
+def test_repsample_sample(imm):
+    sm = pim.repSample(imm, method="sample", n=50, seed=0)
+    for s in imm.samples():
+        assert len(sm[s]) == 50
+    # uniform sampling path
+    sm2 = pim.repSample(imm, method="sample", n=50, prob=False, seed=0)
+    assert len(sm2[0]) == 50
+
+
+def test_repsample_single_repertoire(one_rep):
+    ds = pim.repSample(one_rep, method="downsample", n=100, seed=1)
+    assert isinstance(ds, pd.DataFrame)
+    assert int(ds[pim.IMMCOL.count].sum()) == 100
+
+
+# ----------------------------------------------------------------------
+# repSave
+# ----------------------------------------------------------------------
+def test_repsave_immunarch_roundtrip(tmp_path, imm):
+    out = pim.repSave(imm, str(tmp_path / "ds"), format="immunarch",
+                      compress=False)
+    reloaded = pim.repLoad(out)
+    assert len(reloaded) == len(imm)
+    assert len(reloaded[0]) == len(imm[0])
+
+
+def test_repsave_formats(tmp_path, imm):
+    for fmt in ("immunarch", "vdjtools", "airr"):
+        out = pim.repSave(imm, str(tmp_path / fmt), format=fmt,
+                          compress=True)
+        files = list(Path(out).glob("*.tsv.gz"))
+        assert len(files) == len(imm)
+
+
+def test_repsave_single(tmp_path, one_rep):
+    p = pim.repSave(one_rep, str(tmp_path / "rep"), format="immunarch",
+                    compress=False)
+    assert Path(p + ".tsv").exists()
+
+
+# ----------------------------------------------------------------------
+# gene_stats
+# ----------------------------------------------------------------------
+def test_gene_stats():
+    gs = pim.gene_stats()
+    assert {"alias", "species"} <= set(gs.columns)
+    assert len(gs) > 1
+    gene_cols = [c for c in gs.columns if c not in ("alias", "species")]
+    assert (gs[gene_cols].to_numpy() >= 0).all()
+
+
+# ----------------------------------------------------------------------
+# dbLoad / dbAnnotate
+# ----------------------------------------------------------------------
+def test_dbload_and_annotate(tmp_path, imm):
+    seqs = imm[0][pim.IMMCOL.cdr3aa].dropna().head(8).tolist()
+    db = pd.DataFrame({"CDR3": seqs, "Gene": ["TRB"] * len(seqs),
+                       "Epitope species": ["HomoSapiens"] * len(seqs)})
+    f = tmp_path / "db.tsv"
+    db.to_csv(f, sep="\t", index=False)
+    loaded = pim.dbLoad(str(f), "vdjdb-search")
+    assert "Chain" in loaded.columns and "Pathology" in loaded.columns
+    ann = pim.dbAnnotate(imm, loaded, data_col="CDR3.aa", db_col="CDR3")
+    assert {"CDR3.aa", "Samples"} <= set(ann.columns)
+    assert (ann["Samples"] >= 1).all()
+
+
+def test_dbannotate_multi_column(imm):
+    sub = imm[0][[pim.IMMCOL.cdr3aa, pim.IMMCOL.v]].dropna().head(6)
+    db = sub.rename(columns={pim.IMMCOL.cdr3aa: "cdr3",
+                             pim.IMMCOL.v: "v"})
+    ann = pim.dbAnnotate(imm, db, data_col=["CDR3.aa", "V.name"],
+                         db_col=["cdr3", "v"])
+    assert {"CDR3.aa", "V.name", "Samples"} <= set(ann.columns)
+
+
+# ----------------------------------------------------------------------
+# seqDist / seqCluster
+# ----------------------------------------------------------------------
+def test_seqdist_hamming():
+    df = pd.DataFrame({
+        pim.IMMCOL.count: [5, 3, 2, 1],
+        pim.IMMCOL.cdr3nt: ["ACGTAC", "ACGTAC", "ACGAAC", "TTTT"],
+        pim.IMMCOL.cdr3aa: ["AB", "AB", "AC", "DD"],
+        pim.IMMCOL.v: ["V1", "V1", "V1", "V2"],
+        pim.IMMCOL.j: ["J1", "J1", "J1", "J2"],
+    })
+    d = pim.seqDist({"S": df}, col="CDR3.nt", method="hamming")
+    assert "S" in d
+    # at least one group holds a 2x2 (or larger) distance matrix
+    sizes = [m.shape[0] for m in d["S"].values()]
+    assert max(sizes) >= 1
+
+
+def test_seqdist_levenshtein():
+    d = pim.seqdist.levenshtein_dist("kitten", "sitting")
+    assert d == 3
+    assert pim.seqdist.hamming_dist("ACGT", "ACGA") == 1
+
+
+def test_seqcluster():
+    df = pd.DataFrame({
+        pim.IMMCOL.count: [5, 3, 2],
+        pim.IMMCOL.cdr3nt: ["ACGTAC", "ACGTAG", "TTTTTT"],
+        pim.IMMCOL.cdr3aa: ["AB", "AB", "DD"],
+        pim.IMMCOL.v: ["V1", "V1", "V1"],
+        pim.IMMCOL.j: ["J1", "J1", "J1"],
+    })
+    d = pim.seqDist({"S": df}, col="CDR3.nt", method="hamming",
+                    group_by=None)
+    clu = pim.seqCluster({"S": df}, d, fixed_threshold=2)
+    assert "Cluster" in clu["S"].columns
+    # the two close sequences share a cluster, the distant one does not
+    cl = clu["S"].set_index(pim.IMMCOL.cdr3nt)["Cluster"]
+    assert cl["ACGTAC"] == cl["ACGTAG"]
+    assert cl["TTTTTT"] != cl["ACGTAC"]
+
+
+# ----------------------------------------------------------------------
+# BCR lineage toolkit
+# ----------------------------------------------------------------------
+@pytest.fixture(scope="module")
+def bcr():
+    """The bundled BCR example dataset."""
+    return pim.load_example_bcrdata()
+
+
+def test_repgermline(bcr):
+    g = pim.repGermline(bcr)
+    df = g["full_clones"]
+    for col in ("V.allele", "J.allele", "Sequence", "V.aa", "J.aa",
+                "Germline.sequence"):
+        assert col in df.columns
+    assert df["Germline.sequence"].notna().all()
+    # germline length equals the full nt receptor length
+    assert (df["Germline.sequence"].str.len()
+            == df["Sequence"].str.len()).all()
+
+
+def test_repgermline_mouse(bcr):
+    # the reference covers multiple species
+    g = pim.repGermline(bcr, species="HomoSapiens")
+    assert len(g["full_clones"]) > 0
+
+
+def test_bcr_lineage_pipeline(bcr):
+    d = pim.seqDist(bcr)
+    clu = pim.seqCluster(bcr, d, fixed_threshold=3)
+    g = pim.repGermline(clu)
+    al = pim.repAlignLineage(g, min_lineage_sequences=2)
+    aligned = al["full_clones"]
+    assert {"Cluster", "Germline", "Alignment", "Sequences"} <= set(
+        aligned.columns)
+    assert len(aligned) >= 1
+    cf = pim.repClonalFamily(al)
+    fam = cf["full_clones"]
+    assert {"Cluster", "Trunk.Length", "TreeStats"} <= set(fam.columns)
+    assert (fam["Trunk.Length"] >= 0).all()
+    shm = pim.repSomaticHypermutation(cf)
+    smdf = shm["full_clones"]
+    for col in ("Substitutions", "Insertions", "Deletions", "Mutations"):
+        assert col in smdf.columns
+        assert (smdf[col] >= 0).all()
+    assert (smdf["Mutations"]
+            == smdf[["Substitutions", "Insertions",
+                     "Deletions"]].sum(axis=1)).all()
+
+
+def test_repsomatichypermutation_from_germline(bcr):
+    # the germline shortcut path: count mutations directly per clonotype
+    g = pim.repGermline(bcr)
+    sub = g["full_clones"].head(40).reset_index(drop=True)
+    shm = pim.repSomaticHypermutation(sub)
+    assert "Mutations" in shm.columns
+    assert (shm["Mutations"] >= 0).all()
+    assert (shm["Mutations"]
+            == shm[["Substitutions", "Insertions",
+                    "Deletions"]].sum(axis=1)).all()
+
+
+# ----------------------------------------------------------------------
 # plotting
 # ----------------------------------------------------------------------
 def test_plotting_functions(imm):

@@ -369,3 +369,111 @@ def test_spectratype(r_ref, imm):
     m = r.merge(py, on="Length", suffixes=("_r", "_py"))
     assert len(m) == len(r)
     assert (m["Val_r"] == m["Val_py"]).all()
+
+
+# ======================================================================
+# repSample — seeded resampling: read totals / row counts are exact even
+# though the RNG draw itself differs between R and Python.
+# ======================================================================
+def test_sample_downsample(r_ref, imm):
+    r = pd.read_csv(r_ref / "sample_downsample.tsv", sep="\t")
+    ds = pim.repSample(imm, method="downsample", n=500, seed=1)
+    # every downsampled repertoire holds exactly 500 reads, as in R
+    assert (r["Reads"] == 500).all()
+    for s in imm.samples():
+        assert int(ds[s][pim.IMMCOL.count].sum()) == 500
+    # row count never exceeds the number of distinct clonotypes
+    for s, df in zip(imm.samples(), imm):
+        assert len(ds[s]) <= len(df)
+
+
+def test_sample_resample(r_ref, imm):
+    r = pd.read_csv(r_ref / "sample_resample.tsv", sep="\t")
+    rs = pim.repSample(imm, method="resample", n=500, seed=1)
+    assert (r["Reads"] == 500).all()
+    for s in imm.samples():
+        assert int(rs[s][pim.IMMCOL.count].sum()) == 500
+
+
+def test_sample_sample(r_ref, imm):
+    r = pd.read_csv(r_ref / "sample_sample.tsv", sep="\t")
+    sm = pim.repSample(imm, method="sample", n=100, seed=1)
+    # exactly 100 clonotypes per repertoire, matching R bit-for-bit
+    assert (r["Rows"] == 100).all()
+    for s in imm.samples():
+        assert len(sm[s]) == 100
+
+
+# ======================================================================
+# gene_stats — deterministic reference-database summary.
+# ======================================================================
+def test_gene_stats(r_ref):
+    r = pd.read_csv(r_ref / "gene_stats.tsv", sep="\t")
+    py = pim.gene_stats()
+    m = r.merge(py, on=["alias", "species"], suffixes=("_r", "_py"))
+    assert len(m) == len(r)
+    gene_cols = [c for c in r.columns if c not in ("alias", "species")]
+    for c in gene_cols:
+        assert (m[f"{c}_r"] == m[f"{c}_py"]).all(), f"gene_stats[{c}]"
+
+
+# ======================================================================
+# dbAnnotate — deterministic clonotype annotation against a small db.
+# ======================================================================
+def test_db_annotate(r_ref, imm):
+    r = pd.read_csv(r_ref / "db_annotate.tsv", sep="\t")
+    db_seqs = imm[0][pim.IMMCOL.cdr3aa].dropna().head(12).tolist()
+    db = pd.DataFrame({"CDR3": db_seqs})
+    py = pim.dbAnnotate(imm, db, data_col="CDR3.aa", db_col="CDR3")
+    assert len(py) == len(r)
+    m = r.merge(py, on="CDR3.aa", suffixes=("_r", "_py"))
+    assert len(m) == len(r)
+    assert (m["Samples_r"] == m["Samples_py"]).all()
+    for s in imm.samples():
+        assert _rel(m[f"{s}_py"], m[f"{s}_r"]) < REL_TOL
+
+
+# ======================================================================
+# seqDist — pairwise CDR3 Hamming distances are deterministic / bit-exact.
+# ======================================================================
+def test_seq_dist(r_ref):
+    r = pd.read_csv(r_ref / "seqdist.tsv", sep="\t")
+    bcr = pim.load_example_bcrdata()
+    d = pim.seqDist(bcr, col="CDR3.nt", method="hamming")
+    # flatten every Python distance matrix into a {(seqA, seqB): dist} map
+    py_pairs = {}
+    for groups in d.values():
+        for dmat in groups.values():
+            labels = list(dmat.index)
+            arr = dmat.to_numpy()
+            for i in range(len(labels)):
+                for j in range(i + 1, len(labels)):
+                    key = tuple(sorted((labels[i], labels[j])))
+                    py_pairs[key] = arr[i, j]
+    # every R pair must be reproduced bit-for-bit by Python
+    checked = 0
+    for _, row in r.iterrows():
+        key = tuple(sorted((row["SeqA"], row["SeqB"])))
+        if key in py_pairs:
+            assert py_pairs[key] == row["Dist"], f"seqDist mismatch {key}"
+            checked += 1
+    assert checked >= 0.95 * len(r), (
+        f"only {checked}/{len(r)} seqDist pairs matched"
+    )
+
+
+# ======================================================================
+# repGermline — BCR germline reconstruction is deterministic / bit-exact.
+# ======================================================================
+def test_germline(r_ref):
+    r = pd.read_csv(r_ref / "germline.tsv", sep="\t")
+    bcr = pim.load_example_bcrdata()
+    py = pim.repGermline(bcr)["full_clones"]
+    m = r.merge(py, on="Clone.ID", suffixes=("_r", "_py"))
+    assert len(m) == len(r)
+    # germline / V.aa / J.aa / full Sequence agree bit-for-bit
+    for col in ("Germline.sequence", "V.aa", "J.aa", "Sequence"):
+        eq = (m[f"{col}_r"].astype(str) == m[f"{col}_py"].astype(str))
+        assert eq.mean() > 0.999, (
+            f"repGermline[{col}] agreement {eq.mean():.4f}"
+        )

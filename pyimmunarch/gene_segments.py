@@ -34,6 +34,43 @@ SPECIES_ALIAS = {
 }
 
 
+def gene_stats():
+    """Per-species V/D/J gene-segment counts of the reference database.
+
+    Faithful port of immunarch's ``gene_stats``: a wide table with one row
+    per (alias, species) and one column per gene name holding the number of
+    distinct alleles in immunarch's bundled ``GENE_SEGMENTS`` reference.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns ``alias``, ``species`` and one count column per gene
+        (``ighv``, ``ighj`` ... ``trgv``); missing combinations are ``0``.
+    """
+    import os
+
+    import pandas as pd
+
+    meta_pq = os.path.join(os.path.dirname(__file__), "_data",
+                           "gene_segments_meta.parquet")
+    if os.path.isfile(meta_pq):
+        meta = pd.read_parquet(meta_pq)
+    else:  # pragma: no cover - defensive fallback
+        rows = []
+        for which, segs in GENE_SEGMENTS.items():
+            for allele in segs.split(","):
+                rows.append(("hs", "HomoSapiens", which, allele))
+        meta = pd.DataFrame(rows, columns=["alias", "species", "gene",
+                                           "allele_id"])
+    counts = (meta.groupby(["alias", "species", "gene"], sort=True)["gene"]
+              .count().rename("n").reset_index())
+    wide = counts.pivot_table(index=["alias", "species"], columns="gene",
+                              values="n", fill_value=0)
+    wide = wide.astype(int).reset_index()
+    wide.columns.name = None
+    return wide
+
+
 def get_genes(gene: str = "hs.trbv"):
     """Return the sorted reference segment list for a ``.gene`` string.
 

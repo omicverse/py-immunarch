@@ -109,4 +109,81 @@ wt(as.matrix(kmp), "kmer_profile.tsv")
 sp <- spectratype(imm[[1]], .quant = "count", .col = "aa")
 wtdf(as.data.frame(sp), "spectratype.tsv")
 
+# ====================== repSample =========================================
+# Deterministic invariants: downsample / resample preserve the total read
+# count, sample keeps an exact number of clonotypes. The RNG differs across
+# languages so only the read totals / row counts are bit-exact.
+set.seed(42)
+ds <- repSample(imm, .method = "downsample", .n = 500)
+dsdf <- data.frame(
+  Sample = names(ds),
+  Reads = sapply(ds, function(d) sum(d$Clones)),
+  Rows = sapply(ds, nrow)
+)
+wtdf(dsdf, "sample_downsample.tsv")
+
+set.seed(42)
+rs <- repSample(imm, .method = "resample", .n = 500)
+rsdf <- data.frame(
+  Sample = names(rs),
+  Reads = sapply(rs, function(d) sum(d$Clones))
+)
+wtdf(rsdf, "sample_resample.tsv")
+
+set.seed(42)
+sm <- repSample(imm, .method = "sample", .n = 100)
+smdf <- data.frame(
+  Sample = names(sm),
+  Rows = sapply(sm, nrow)
+)
+wtdf(smdf, "sample_sample.tsv")
+
+# ====================== gene_stats ========================================
+gst <- gene_stats()
+wtdf(as.data.frame(gst), "gene_stats.tsv")
+
+# ====================== dbAnnotate ========================================
+# Build a small annotation database from real clonotypes of sample 1 and
+# annotate the whole cohort against it.
+db_seqs <- head(na.omit(imm[[1]]$CDR3.aa), 12)
+db <- data.frame(CDR3 = db_seqs, stringsAsFactors = FALSE)
+ann <- dbAnnotate(imm, db, .data.col = "CDR3.aa", .db.col = "CDR3")
+wtdf(as.data.frame(ann), "db_annotate.tsv")
+
+# ====================== seqDist ===========================================
+# Pairwise CDR3.nt Hamming distances on a BCR repertoire, grouped by
+# V/J gene + sequence length (the immunarch default).
+data(bcrdata)
+bcr <- bcrdata$data
+sd <- seqDist(bcr, .col = "CDR3.nt", .method = "hamming")
+sd_groups <- sd[[1]]
+# flatten every distance matrix into long form (SeqA, SeqB, dist), keyed by
+# the sequence pair so it can be joined regardless of group ordering.
+sd_rows <- list()
+for (mat in sd_groups) {
+  labs <- attr(mat, "Labels")
+  if (length(labs) < 2) next
+  m <- as.matrix(mat)
+  for (i in seq_len(nrow(m))) {
+    for (j in seq_len(ncol(m))) {
+      if (j > i) {
+        sd_rows[[length(sd_rows) + 1]] <- data.frame(
+          SeqA = labs[i], SeqB = labs[j],
+          Dist = m[i, j], stringsAsFactors = FALSE
+        )
+      }
+    }
+  }
+}
+sd_long <- do.call(rbind, sd_rows)
+wtdf(sd_long, "seqdist.tsv")
+
+# ====================== repGermline ======================================
+# Reconstruct BCR germlines; deterministic and bit-exact.
+gml <- repGermline(bcr, .threads = 1)$full_clones
+gml_out <- gml[, c("Clone.ID", "V.allele", "J.allele",
+                   "Germline.sequence", "V.aa", "J.aa", "Sequence")]
+gml_out <- gml_out[order(gml_out$Clone.ID), ]
+wtdf(gml_out, "germline.tsv")
+
 cat("R reference driver done.\n")

@@ -16,7 +16,29 @@ I/O
 ---
 * :func:`repLoad`             — load repertoire file(s) (AIRR / immunarch /
   MiXCR / VDJtools / 10x; auto-detected).
+* :func:`repSave`             — write repertoires back to disk (immunarch /
+  AIRR / VDJtools).
 * :func:`load_example_immdata` — the bundled example TCR cohort.
+
+Sampling
+--------
+* :func:`repSample` — down-sample / resample repertoires (downsample,
+  resample, sample).
+
+Immunogenicity-database annotation
+----------------------------------
+* :func:`dbLoad`, :func:`dbAnnotate` — load a VDJdb / McPAS-TCR / PIRD
+  database and annotate clonotypes against it.
+
+Sequence distance & clustering
+------------------------------
+* :func:`seqDist`, :func:`seqCluster` — pairwise CDR3 distances and
+  graph-based sequence clustering.
+
+BCR lineage toolkit
+-------------------
+* :func:`repGermline`, :func:`repAlignLineage`, :func:`repClonalFamily`,
+  :func:`repSomaticHypermutation`.
 
 Exploratory statistics
 ----------------------
@@ -91,6 +113,7 @@ from .analysis import (
     js_div,
     kl_div,
 )
+from .annotation import dbAnnotate, dbLoad
 from .clonality import repClonality
 from .diversity import repDiversity
 from .dynamics import trackClonotypes
@@ -103,10 +126,23 @@ from .filters import (
     morethan,
     repFilter,
 )
-from .gene_segments import GENE_SEGMENTS, get_genes
+from .gene_segments import GENE_SEGMENTS, gene_stats, get_genes
 from .gene_usage import geneUsage, geneUsageAnalysis
-from .io import IMMCOL, ImmunData, load_example_immdata, repLoad
+from .io import (
+    IMMCOL,
+    ImmunData,
+    load_example_bcrdata,
+    load_example_immdata,
+    repLoad,
+    repSave,
+)
 from .kmers import getKmers, kmer_profile, spectratype, split_to_kmers
+from .lineage import (
+    repAlignLineage,
+    repClonalFamily,
+    repGermline,
+    repSomaticHypermutation,
+)
 from .overlap import repOverlap, repOverlapAnalysis
 from .plotting import (
     vis_clonal_space,
@@ -124,6 +160,8 @@ from .public import (
     pubRepFilter,
     pubRepStatistics,
 )
+from .sampling import repSample
+from .seqdist import seqCluster, seqDist
 from .utils import (
     bunch_translate,
     coding,
@@ -133,7 +171,7 @@ from .utils import (
     top,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     # data model
@@ -141,13 +179,17 @@ __all__ = [
     "IMMCOL",
     # I/O
     "repLoad",
+    "repSave",
     "load_example_immdata",
+    "load_example_bcrdata",
     # exploratory
     "repExplore",
     # clonality
     "repClonality",
     # diversity
     "repDiversity",
+    # sampling
+    "repSample",
     # overlap
     "repOverlap",
     "repOverlapAnalysis",
@@ -156,12 +198,24 @@ __all__ = [
     "geneUsageAnalysis",
     "GENE_SEGMENTS",
     "get_genes",
+    "gene_stats",
     # public clonotypes
     "pubRep",
     "public_matrix",
     "pubRepStatistics",
     "pubRepFilter",
     "pubRepApply",
+    # immunogenicity-database annotation
+    "dbLoad",
+    "dbAnnotate",
+    # sequence distance & clustering
+    "seqDist",
+    "seqCluster",
+    # BCR lineage toolkit
+    "repGermline",
+    "repAlignLineage",
+    "repClonalFamily",
+    "repSomaticHypermutation",
     # dynamics
     "trackClonotypes",
     # k-mers

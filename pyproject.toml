@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyimmunarch"
-version = "0.1.0"
+version = "0.1.1"
 description = "Pure-Python port of the R package immunarch — bulk and single-cell immune-repertoire (TCR/BCR AIRR-seq) analytics."
 readme = "README.md"
 requires-python = ">=3.9"

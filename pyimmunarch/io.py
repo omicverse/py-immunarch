@@ -30,7 +30,9 @@ __all__ = [
     "IMMCOL",
     "ImmunData",
     "repLoad",
+    "repSave",
     "load_example_immdata",
+    "load_example_bcrdata",
 ]
 
 
@@ -381,6 +383,111 @@ def repLoad(path: Union[str, Iterable[str]],
 
 
 # --------------------------------------------------------------------------
+# Writers — repSave.
+# --------------------------------------------------------------------------
+_VDJTOOLS_OUT_RENAME = {
+    IMMCOL.count: "#Seq. Count",
+    IMMCOL.prop: "Percent",
+    IMMCOL.cdr3nt: "N Sequence",
+    IMMCOL.cdr3aa: "AA Sequence",
+    IMMCOL.v: "V Segments",
+    IMMCOL.d: "D Segment",
+    IMMCOL.j: "J Segments",
+}
+
+
+def _save_immunarch(df: pd.DataFrame, path: str, compress: bool) -> str:
+    """Write a repertoire in the native immunarch TSV format."""
+    suffix = ".tsv.gz" if compress else ".tsv"
+    fp = path + suffix
+    header = "# Exported from pyimmunarch https://immunarch.com\n"
+    opener = (lambda: gzip.open(fp, "wt", encoding="utf-8")) if compress \
+        else (lambda: open(fp, "w", encoding="utf-8"))
+    with opener() as fh:
+        fh.write(header)
+        df.to_csv(fh, sep="\t", index=False)
+    return fp
+
+
+def _save_vdjtools(df: pd.DataFrame, path: str, compress: bool) -> str:
+    """Write a repertoire in the VDJtools TSV format."""
+    suffix = ".tsv.gz" if compress else ".tsv"
+    fp = path + suffix
+    out = df.rename(columns={k: v for k, v in _VDJTOOLS_OUT_RENAME.items()
+                             if k in df.columns})
+    out.to_csv(fp, sep="\t", index=False,
+               compression="gzip" if compress else None)
+    return fp
+
+
+def _save_airr(df: pd.DataFrame, path: str, compress: bool) -> str:
+    """Write a repertoire in the AIRR rearrangement TSV format."""
+    suffix = ".tsv.gz" if compress else ".tsv"
+    fp = path + suffix
+    rev = {v: k for k, v in _AIRR_RENAME.items()
+           if v in (IMMCOL.count, IMMCOL.cdr3nt, IMMCOL.cdr3aa,
+                    IMMCOL.v, IMMCOL.d, IMMCOL.j, IMMCOL.seq)}
+    out = df.rename(columns=rev)
+    if "sequence_id" not in out.columns:
+        out.insert(0, "sequence_id",
+                   [f"seq{i + 1}" for i in range(len(out))])
+    out.to_csv(fp, sep="\t", index=False,
+               compression="gzip" if compress else None)
+    return fp
+
+
+def repSave(data, path: str, format: str = "immunarch",
+            compress: bool = True) -> str:
+    """Write immune repertoires to disk.
+
+    Parameters
+    ----------
+    data
+        :class:`ImmunData`, a list/dict of repertoires, or a single
+        repertoire :class:`pandas.DataFrame`.
+    path
+        For a single repertoire: the output file path *without* extension.
+        For a dataset: a directory; each repertoire is written inside it as
+        ``<sample>.tsv`` and (for an :class:`ImmunData`) a ``metadata.txt``.
+    format
+        ``"immunarch"`` (native TSV), ``"vdjtools"`` or ``"airr"``.
+    compress
+        Gzip the output files (``.tsv.gz``).
+
+    Returns
+    -------
+    str
+        The output ``path``.
+    """
+    fmt = str(format).lower()
+    writers = {"immunarch": _save_immunarch, "vdjtools": _save_vdjtools,
+               "airr": _save_airr}
+    if fmt not in writers:
+        raise ValueError(
+            "Unknown format. Use 'immunarch', 'vdjtools' or 'airr'."
+        )
+    writer = writers[fmt]
+
+    if isinstance(data, ImmunData):
+        os.makedirs(path, exist_ok=True)
+        data.meta.to_csv(os.path.join(path, "metadata.txt"),
+                         sep="\t", index=False)
+        for name, df in data.data.items():
+            writer(df, os.path.join(path, str(name)), compress)
+    elif isinstance(data, dict):
+        os.makedirs(path, exist_ok=True)
+        for name, df in data.items():
+            writer(df, os.path.join(path, str(name)), compress)
+    elif isinstance(data, (list, tuple)):
+        os.makedirs(path, exist_ok=True)
+        for i, df in enumerate(data):
+            writer(df, os.path.join(path, f"Sample{i + 1}"), compress)
+    else:
+        writer(data, path, compress)
+    return path
+
+
+# --------------------------------------------------------------------------
 def load_example_immdata() -> ImmunData:
     """Load the bundled immunarch example dataset (``immdata``).
 
@@ -402,6 +509,29 @@ def load_example_immdata() -> ImmunData:
             )
         return ImmunData(data, meta)
     return _synthetic_immdata()  # pragma: no cover - defensive fallback
+
+
+def load_example_bcrdata() -> ImmunData:
+    """Load the bundled immunarch BCR example dataset (``bcrdata``).
+
+    A single-sample IGH repertoire (``full_clones``, 1000 clonotypes) with
+    the segmented ``FR*.nt`` / ``CDR*.nt`` columns required by the BCR
+    lineage toolkit (:func:`pyimmunarch.repGermline` &c.), exported from the
+    R package so py-immunarch needs no R install.
+
+    Returns
+    -------
+    ImmunData
+        One repertoire named ``full_clones``.
+    """
+    data_dir = os.path.join(os.path.dirname(__file__), "_data")
+    pq = os.path.join(data_dir, "bcrdata.parquet")
+    if not os.path.isfile(pq):  # pragma: no cover - defensive
+        raise FileNotFoundError("Bundled bcrdata example is missing.")
+    df = pd.read_parquet(pq)
+    data: "OrderedDict[str, pd.DataFrame]" = OrderedDict()
+    data["full_clones"] = df.reset_index(drop=True)
+    return ImmunData(data, pd.DataFrame({"Sample": ["full_clones"]}))
 
 
 def _synthetic_immdata(n_samples: int = 4, seed: int = 0) -> ImmunData:
