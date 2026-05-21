@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyimmunarch"
+version = "0.1.0"
+description = "Pure-Python port of the R package immunarch — bulk and single-cell immune-repertoire (TCR/BCR AIRR-seq) analytics."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Zehua Zeng", email = "starlitnightly@163.com" },
+]
+keywords = [
+    "immune-repertoire", "immunarch", "TCR", "BCR", "AIRR-seq",
+    "clonotype", "diversity", "repertoire-overlap", "gene-usage",
+    "public-clonotypes", "rep-seq", "immunoinformatics",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+dependencies = [
+    "numpy>=1.23",
+    "scipy>=1.10",
+    "pandas>=1.5",
+    "matplotlib>=3.6",
+    "scikit-learn>=1.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pytest-cov", "ruff"]
+
+[project.urls]
+Homepage = "https://github.com/omicverse/py-immunarch"
+Repository = "https://github.com/omicverse/py-immunarch"
+Issues = "https://github.com/omicverse/py-immunarch/issues"
+"Upstream CRAN package" = "https://cran.r-project.org/package=immunarch"
+"Upstream (omicverse)" = "https://github.com/Starlitnightly/omicverse"
+
+[tool.setuptools.packages.find]
+include = ["pyimmunarch*"]
+exclude = ["tests*", "examples*", "immunarch-ref*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::FutureWarning",
+    "ignore::RuntimeWarning",
+]
