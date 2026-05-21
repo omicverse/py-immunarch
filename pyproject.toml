@@ -49,6 +49,9 @@ Issues = "https://github.com/omicverse/py-immunarch/issues"
 include = ["pyimmunarch*"]
 exclude = ["tests*", "examples*", "immunarch-ref*"]
 
+[tool.setuptools.package-data]
+pyimmunarch = ["_data/*.parquet"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = [

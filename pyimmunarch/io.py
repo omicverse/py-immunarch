@@ -381,26 +381,27 @@ def repLoad(path: Union[str, Iterable[str]],
 
 
 # --------------------------------------------------------------------------
-def load_example_immdata(extdata_dir: Optional[str] = None) -> ImmunData:
+def load_example_immdata() -> ImmunData:
     """Load the bundled immunarch example dataset (``immdata``).
 
-    If ``extdata_dir`` is not given, looks for the immunarch R package's
-    ``extdata/io`` directory inside the CMAP conda env, falling back to a
-    small synthetic TCR cohort so the function always returns usable data.
+    The canonical immunarch ``immdata`` — a 12-sample TCR-beta cohort
+    (6 ``MS`` / 6 healthy ``C``) — exported from the R package and shipped
+    inside py-immunarch as a parquet, so the function is self-contained
+    and needs no R install. Falls back to a small synthetic TCR cohort
+    only if the bundled file is missing.
     """
-    candidates = []
-    if extdata_dir:
-        candidates.append(extdata_dir)
-    candidates.append(
-        "/scratch/users/steorra/env/CMAP/lib/R/library/immunarch/extdata/io"
-    )
-    for cand in candidates:
-        if cand and os.path.isdir(cand):
-            try:
-                return repLoad(cand)
-            except Exception:  # pragma: no cover - defensive
-                continue
-    return _synthetic_immdata()
+    data_dir = os.path.join(os.path.dirname(__file__), "_data")
+    pq = os.path.join(data_dir, "immdata.parquet")
+    if os.path.isfile(pq):
+        alldf = pd.read_parquet(pq)
+        meta = pd.read_parquet(os.path.join(data_dir, "immdata_meta.parquet"))
+        data: "OrderedDict[str, pd.DataFrame]" = OrderedDict()
+        for sample, sub in alldf.groupby("Sample", sort=False):
+            data[str(sample)] = (
+                sub.drop(columns=["Sample"]).reset_index(drop=True)
+            )
+        return ImmunData(data, meta)
+    return _synthetic_immdata()  # pragma: no cover - defensive fallback
 
 
 def _synthetic_immdata(n_samples: int = 4, seed: int = 0) -> ImmunData:
